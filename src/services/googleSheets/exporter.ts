@@ -1,7 +1,8 @@
 import { googleLogger } from '../../utils/logger.js';
 
 import { google } from 'googleapis';
-import knex from '#postgres/knex.js';
+import { SpreadsheetsRepository } from '../../repositories/spreadsheets.repository.js';
+import { TariffsRepository } from '../../repositories/tariffs.repository.js';
 import type { sheets_v4 } from 'googleapis';
 import type { SpreadsheetDbRow, TariffRow } from './types.js';
 
@@ -62,27 +63,15 @@ export class GoogleSheetsExporter {
      * Экспортирует тарифы в N Google Sheets
      */
     async exportTariffsToSheets(): Promise<void> {
-        const spreadsheets: SpreadsheetDbRow[] = await knex('spreadsheets').select('spreadsheet_id');
+        const spreadsheets: SpreadsheetDbRow[] = await SpreadsheetsRepository.getAll();
         if (!spreadsheets.length) {
             googleLogger.warn('No spreadsheets found in DB');
             return;
         }
         const sheetIds: string[] = spreadsheets.map(s => s.spreadsheet_id);
 
-        // Сегодняшняя дата
         const today = new Date().toISOString().split('T')[0];
-
-        // Последние тарифы за сегодня по каждому складу
-        const rows: TariffRow[] = await knex('tariffs as t')
-            .leftJoin('warehouses as w', 't.warehouse_id', 'w.id')
-            .select(
-                'w.warehouse_name',
-                'w.geo_name',
-                't.*'
-            )
-            .where('t.day', today)
-            .orderBy('t.box_storage_coef_expr', 'asc');
-
+        const rows: TariffRow[] = await TariffsRepository.getLatestTariffs(today);
         if (!rows.length) {
             googleLogger.warn('No tariff data for export');
             return;
