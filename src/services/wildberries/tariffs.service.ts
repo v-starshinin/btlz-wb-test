@@ -1,3 +1,4 @@
+import { wbLogger } from '../../utils/logger.js';
 
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import type {
@@ -62,7 +63,7 @@ export class WildberriesTariffsService {
         let lastError: unknown = null;
         for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
             try {
-                console.info(`[WB API] Requesting ${url}`);
+                wbLogger.info(`[WB API] Requesting ${url}`);
                 const res = await this.client.get<T>(url, {
                     headers: { Authorization: this.apiKey }
                 });

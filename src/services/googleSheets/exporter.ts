@@ -1,3 +1,4 @@
+import { googleLogger } from '../../utils/logger.js';
 
 import { google } from 'googleapis';
 import knex from '#postgres/knex.js';
@@ -63,7 +64,7 @@ export class GoogleSheetsExporter {
     async exportTariffsToSheets(): Promise<void> {
         const spreadsheets: SpreadsheetDbRow[] = await knex('spreadsheets').select('spreadsheet_id');
         if (!spreadsheets.length) {
-            console.log('No spreadsheets found in DB');
+            googleLogger.warn('No spreadsheets found in DB');
             return;
         }
         const sheetIds: string[] = spreadsheets.map(s => s.spreadsheet_id);
@@ -83,7 +84,7 @@ export class GoogleSheetsExporter {
             .orderBy('t.box_storage_coef_expr', 'asc');
 
         if (!rows.length) {
-            console.log('No tariff data for export');
+            googleLogger.warn('No tariff data for export');
             return;
         }
 
@@ -131,7 +132,7 @@ export class GoogleSheetsExporter {
                 valueInputOption: 'USER_ENTERED',
                 requestBody: { values }
             });
-            console.log(`Updated spreadsheet ${spreadsheetId}`);
+            googleLogger.info(`Updated spreadsheet ${spreadsheetId}`);
         }
     }
 }

@@ -1,3 +1,4 @@
+import { dbLogger } from '../../utils/logger.js';
 import knex from '#postgres/knex.js';
 import type { Warehouse, TariffRecord } from './tariff-storage.types.js';
 
@@ -9,8 +10,10 @@ export class TariffStorageService {
         const existing = await knex('warehouses')
             .where({ warehouse_name: warehouseName, geo_name: geoName })
             .first();
-        
-        if (existing) return existing;
+        if (existing) {
+            dbLogger.debug(`Склад найден: ${warehouseName}, ${geoName}`);
+            return existing;
+        }
 
         const [created] = await knex('warehouses')
             .insert({
@@ -18,7 +21,7 @@ export class TariffStorageService {
                 geo_name: geoName
             })
             .returning('*');
-
+        dbLogger.info(`Создан новый склад: ${warehouseName}, ${geoName}`);
         return created;
     }
 
@@ -84,6 +87,7 @@ export class TariffStorageService {
                     box_storage_liter: record.box_storage_liter,
                     updated_at: now
                 });
+            dbLogger.info(`Tariff upsert для склада id=${warehouse.id}, день=${requestDate}`);
         }
     }
 

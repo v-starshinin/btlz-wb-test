@@ -3,6 +3,7 @@ import express from 'express';
 import cron from 'node-cron';
 import knex, { migrate, seed } from '#postgres/knex.js';
 import { wildberriesTariffsService } from './services/wildberries/tariffs.service.js';
+import { logger, apiLogger } from './utils/logger.js';
 import { TariffStorageService } from './services/wildberries/tariff-storage.service.js';
 import { GoogleSheetsExporter } from './services/googleSheets/exporter.js';
 
@@ -11,7 +12,7 @@ dotenv.config();
 await migrate.latest();
 await seed.run();
 
-console.log('Migrations and seeds applied');
+logger.info('Migrations and seeds applied');
 
 const app = express();
 const port = process.env.APP_PORT ?? 5000;
@@ -25,26 +26,29 @@ async function fetchAndStore() {
     let res = null;
     try {
         res = await wildberriesTariffsService.getBoxTariffs(today);
+
     } catch (err) {
-        console.error('[fetchAndStore] Ошибка получения тарифов из WB API:', err);
+        apiLogger.error('[fetchAndStore] Ошибка получения тарифов из WB API:', err);
         return;
     }
 
     try {
         await storage.saveTariffs(res, today);
+
     } catch (err) {
-        console.error('[fetchAndStore] Ошибка при сохранении тарифов в БД:', err);
+        apiLogger.error('[fetchAndStore] Ошибка при сохранении тарифов в БД:', err);
         return;
     }
 
     try {
         await googleSheetsExporter.exportTariffsToSheets();
+
     } catch (err) {
-        console.error('[fetchAndStore] Ошибка экспорта тарифов в Google Sheets:', err);
+        apiLogger.error('[fetchAndStore] Ошибка экспорта тарифов в Google Sheets:', err);
         return;
     }
 
-    console.log('Tariffs fetched, stored, exported at', new Date().toISOString());
+    apiLogger.info('Tariffs fetched, stored, exported at', new Date().toISOString());
 }
 
 // Один раз при запуске
@@ -52,7 +56,7 @@ async function fetchAndStore() {
     try {
         await fetchAndStore();
     } catch (err) {
-        console.error('[Main] Ошибка при первом запуске fetchAndStore:', err);
+    logger.error('[Main] Ошибка при первом запуске fetchAndStore:', err);
     }
 })();
 
@@ -60,14 +64,14 @@ async function fetchAndStore() {
 try {
     cron.schedule('0 * * * *', async () => {
         try {
-            console.log('Cron job started at', new Date().toISOString());
+            logger.debug('Cron job started at', new Date().toISOString());
             await fetchAndStore();
         } catch (err) {
-            console.error('[CRON] Ошибка в часовом запуске:', err);
+            logger.error('[CRON] Ошибка в часовом запуске:', err);
         }
     });
 } catch (err) {
-    console.error('[CRON] Не удалось запустить cron-задачу:', err);
+    logger.error('[CRON] Не удалось запустить cron-задачу:', err);
 }
 
 
@@ -103,7 +107,8 @@ app.get('/health', async (_req, res) => {
             googleSheetsKeyError: sheetsKeyError
         });
     } catch (err) {
-        res.status(500).json({ ok: false, error: 'internal error', detail: (err instanceof Error ? err.message : String(err)) });
+    apiLogger.error('[health-check] Ошибка:', err);
+    res.status(500).json({ ok: false, error: 'internal error', detail: (err instanceof Error ? err.message : String(err)) });
     }
 });
 
@@ -113,12 +118,13 @@ app.get('/fetch-now', async (_req, res) => {
         res.json({ ok: true });
     } catch (err) {
         const message = (err instanceof Error) ? err.message : String(err);
-        res.status(500).json({ ok: false, error: 'fetch failed', detail: message });
+    apiLogger.error('[fetch-now] Ошибка:', err);
+    res.status(500).json({ ok: false, error: 'fetch failed', detail: message });
     }
 });
 
 app.listen(port, () => {
-	console.log(`App listening on port ${port}`);
+    logger.info(`App listening on port ${port}`);
 });
 
 export default app;
