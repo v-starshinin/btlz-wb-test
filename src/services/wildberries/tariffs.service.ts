@@ -13,7 +13,7 @@ import {
 } from './errors.js';
 
 export class WildberriesTariffsService {
-    private readonly baseUrl: string = 'https://common-api.wildberries.ru/api/v1';
+    static BASE_URL = 'https://common-api.wildberries.ru/api/v1';
     private readonly apiKey: string;
     private readonly client: AxiosInstance;
     private readonly maxRetries: number;
@@ -22,28 +22,23 @@ export class WildberriesTariffsService {
 
     constructor() {
         this.apiKey = process.env.WB_API_KEY || '';
-        if (!this.apiKey) {
-            throw new Error('WB_API_KEY is not set in environment variables');
-        }
+        if (!this.apiKey) throw new Error('WB_API_KEY is not set in environment variables');
+
+        this.maxRetries = Number.parseInt(process.env.WB_MAX_RETRIES ?? '3', 10) || 3;
+        this.backoffBaseMs = Number.parseInt(process.env.WB_BACKOFF_BASE_MS ?? '1000', 10) || 1000;
+        this.backoffMaxMs = Number.parseInt(process.env.WB_BACKOFF_MAX_MS ?? '30000', 10) || 30000;
 
         this.client = axios.create({
-            baseURL: this.baseUrl,
+            baseURL: WildberriesTariffsService.BASE_URL,
             timeout: 15_000,
-            headers: {
-                'Content-Type': 'application/json',
-                // leave Authorization header per-request to allow changes
-            },
+            headers: { 'Content-Type': 'application/json' }
         });
-
-        const mr = parseInt(process.env.WB_MAX_RETRIES ?? '3', 10);
-        this.maxRetries = Number.isNaN(mr) ? 3 : mr;
-        const bb = parseInt(process.env.WB_BACKOFF_BASE_MS ?? '1000', 10);
-        this.backoffBaseMs = Number.isNaN(bb) ? 1000 : bb;
-        const bm = parseInt(process.env.WB_BACKOFF_MAX_MS ?? '30000', 10);
-        this.backoffMaxMs = Number.isNaN(bm) ? 30000 : bm;
     }
 
-    private parseProblem(respData: unknown): ProblemResponse | undefined {
+    /**
+     * Парсит структуру ошибки, которую возвращает API WB
+     */
+    private static parseProblem(respData: unknown): ProblemResponse | undefined {
         if (!respData || typeof respData !== 'object') return undefined;
         const p: ProblemResponse = {};
         const src = respData as Record<string, unknown>;
@@ -60,11 +55,12 @@ export class WildberriesTariffsService {
     /**
      * Универсальный запрос с повторными попытками/бэкофом для лимитов и временных ошибок
      */
+    /**
+     * Делает запрос к API WB с ретраями и бэкоффом
+     */
     private async requestWithRetry<T>(url: string): Promise<T> {
-        let attempt = 0;
-        let lastError: any;
-
-        while (attempt <= this.maxRetries) {
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
             try {
                 console.info(`[WB API] Requesting ${url}`);
                 const res = await this.client.get<T>(url, {
@@ -72,62 +68,41 @@ export class WildberriesTariffsService {
                 });
                 return res.data;
             } catch (err) {
-                attempt += 1;
                 lastError = err;
-
-                if (!axios.isAxiosError(err)) {
-                    // Не ошибка axios — пробрасываем дальше
-                    throw err;
-                }
-
+                if (!axios.isAxiosError(err)) throw err;
                 const axiosErr = err as AxiosError<any>;
                 const status = axiosErr.response?.status;
-                const problem = this.parseProblem(axiosErr.response?.data);
+                const problem = WildberriesTariffsService.parseProblem(axiosErr.response?.data);
 
-                // 401: неавторизованный, без повторных попыток
-                if (status === 401) {
+                if (status === 401)
                     throw new UnauthorizedError(axiosErr.message, problem);
-                }
 
-                // 400: некорректный запрос — сразу ошибка
-                if (status === 400) {
+                if (status === 400)
                     throw new ApiError('Bad request', 400, problem);
-                }
 
-                // 429: превышен лимит — учитывать Retry-After если присутствует
                 if (status === 429) {
                     const ra = axiosErr.response?.headers && (axiosErr.response.headers['retry-after'] || axiosErr.response.headers['Retry-After']);
                     let retryAfterSec: number | undefined;
                     if (ra) {
                         const v = Array.isArray(ra) ? ra[0] : ra;
-                        const parsed = parseInt(String(v), 10);
+                        const parsed = Number.parseInt(String(v), 10);
                         if (!Number.isNaN(parsed)) retryAfterSec = parsed;
                     }
-
-                    if (attempt > this.maxRetries) {
-                        throw new RateLimitError('Rate limited and retries exhausted', retryAfterSec, problem);
-                    }
-
-                    // Если сервер прислал Retry-After, ждём, иначе экспоненциальный бэкофф
+                    if (attempt >= this.maxRetries) throw new RateLimitError('Rate limited and retries exhausted', retryAfterSec, problem);
                     const waitMs = retryAfterSec ? retryAfterSec * 1000 : Math.min(this.backoffMaxMs, this.backoffBaseMs * Math.pow(2, attempt));
                     await new Promise(r => setTimeout(r, waitMs));
-                    continue; // retry
+                    continue;
                 }
 
-                // Для 5xx и сетевых ошибок — повторять с экспоненциальной задержкой
                 if (!status || (status >= 500 && status < 600) || axiosErr.code === 'ECONNABORTED' || axiosErr.code === 'ENOTFOUND') {
-                    if (attempt > this.maxRetries) break;
+                    if (attempt >= this.maxRetries) break;
                     const wait = Math.min(this.backoffMaxMs, this.backoffBaseMs * Math.pow(2, attempt));
                     await new Promise(r => setTimeout(r, wait));
                     continue;
                 }
-
-                // Прочие ошибки — бросить общую ошибку ApiError
                 throw new ApiError(axiosErr.message, status, problem);
             }
         }
-
-    // Если вышли из цикла — бросить последнюю ошибку
         if (lastError) throw lastError;
         throw new Error('Unknown error in requestWithRetry');
     }
@@ -137,13 +112,9 @@ export class WildberriesTariffsService {
      * @param date Необязательная дата в формате YYYY-MM-DD. Если не передано — используется текущая дата
      */
     async getBoxTariffs(date?: string): Promise<BoxTariffResponse> {
-        const params = new URLSearchParams();
         const requestDate = date || new Date().toISOString().split('T')[0];
-        params.append('date', requestDate);
-        const query = params.toString();
-        const url = `/tariffs/box${query ? `?${query}` : ''}`;
-        const data = await this.requestWithRetry<BoxTariffResponse>(url);
-        return data;
+        const url = `/tariffs/box?date=${encodeURIComponent(requestDate)}`;
+        return this.requestWithRetry<BoxTariffResponse>(url);
     }
 }
 
