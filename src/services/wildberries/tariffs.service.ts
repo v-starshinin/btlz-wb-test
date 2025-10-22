@@ -1,70 +1,16 @@
+
 import axios, { AxiosError, AxiosInstance } from 'axios';
-
-export interface WarehouseTariff {
-    boxDeliveryBase: string;
-    boxDeliveryCoefExpr: string;
-    boxDeliveryLiter: string;
-    boxDeliveryMarketplaceBase: string;
-    boxDeliveryMarketplaceCoefExpr: string;
-    boxDeliveryMarketplaceLiter: string;
-    boxStorageBase: string;
-    boxStorageCoefExpr: string;
-    boxStorageLiter: string;
-    geoName: string;
-    warehouseName: string;
-}
-
-export interface TariffData {
-    dtNextBox: string;
-    dtTillMax: string;
-    warehouseList: WarehouseTariff[];
-}
-
-export interface BoxTariffResponse {
-    response: {
-        data: TariffData;
-    };
-}
-
-/**
- * Структурированная ошибка API, возвращаемая Wildberries при 4xx/5xx
- */
-export type ProblemResponse = {
-    title?: string;
-    detail?: string;
-    code?: string;
-    requestId?: string;
-    origin?: string;
-    status?: number;
-    timestamp?: string;
-};
-
-export class ApiError extends Error {
-    status?: number;
-    problem?: ProblemResponse;
-    constructor(message: string, status?: number, problem?: ProblemResponse) {
-        super(message);
-        this.name = 'ApiError';
-        this.status = status;
-        this.problem = problem;
-    }
-}
-
-export class UnauthorizedError extends ApiError {
-    constructor(message = 'Unauthorized', problem?: ProblemResponse) {
-        super(message, 401, problem);
-        this.name = 'UnauthorizedError';
-    }
-}
-
-export class RateLimitError extends ApiError {
-    retryAfter?: number;
-    constructor(message = 'Rate limited', retryAfter?: number, problem?: ProblemResponse) {
-        super(message, 429, problem);
-        this.name = 'RateLimitError';
-        this.retryAfter = retryAfter;
-    }
-}
+import {
+    WarehouseTariff,
+    TariffData,
+    BoxTariffResponse,
+    ProblemResponse
+} from './types.js';
+import {
+    ApiError,
+    UnauthorizedError,
+    RateLimitError
+} from './errors.js';
 
 export class WildberriesTariffsService {
     private readonly baseUrl = 'https://common-api.wildberries.ru/api/v1';
