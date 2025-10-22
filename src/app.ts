@@ -4,7 +4,7 @@ import cron from 'node-cron';
 import knex, { migrate, seed } from '#postgres/knex.js';
 import { wildberriesTariffsService } from './services/wildberries/tariffs.service.js';
 import { TariffStorageService } from './services/wildberries/tariff-storage.service.js';
-import { exportTariffsToSheets } from './services/googleSheets/exporter.js';
+import { GoogleSheetsExporter } from './services/googleSheets/exporter.js';
 
 dotenv.config();
 
@@ -18,6 +18,8 @@ const port = process.env.APP_PORT ?? 5000;
 
 const storage = new TariffStorageService();
 
+
+const googleSheetsExporter = new GoogleSheetsExporter();
 async function fetchAndStore() {
     const today = new Date().toISOString().split('T')[0];
     let res = null;
@@ -36,7 +38,7 @@ async function fetchAndStore() {
     }
 
     try {
-        await exportTariffsToSheets();
+        await googleSheetsExporter.exportTariffsToSheets();
     } catch (err) {
         console.error('[fetchAndStore] Ошибка экспорта тарифов в Google Sheets:', err);
         return;
@@ -68,15 +70,44 @@ try {
     console.error('[CRON] Не удалось запустить cron-задачу:', err);
 }
 
-app.get('/health', (_req, res) => {
+
+// Health-check: проверяет соединение с БД и Google Sheets API
+app.get('/health', async (_req, res) => {
     try {
-        res.json({ ok: true });
+        // Проверка БД
+        let dbOk = false;
+        try {
+            await knex.raw('select 1+1 as result');
+            dbOk = true;
+        } catch (dbErr) {
+            dbOk = false;
+        }
+
+
+        // Проверка Google Sheets API с использованием ключа
+        let sheetsOk = false;
+        let sheetsKeyError: string | null = null;
+        try {
+            const authResult = await googleSheetsExporter.testAuth();
+            sheetsOk = authResult.ok;
+            sheetsKeyError = authResult.error || null;
+        } catch (sheetsErr: any) {
+            sheetsOk = false;
+            sheetsKeyError = sheetsErr instanceof Error ? sheetsErr.message : String(sheetsErr);
+        }
+
+        res.json({
+            ok: dbOk && sheetsOk,
+            db: dbOk,
+            googleSheets: sheetsOk,
+            googleSheetsKeyError: sheetsKeyError
+        });
     } catch (err) {
-        res.status(500).json({ ok: false, error: 'internal error' });
+        res.status(500).json({ ok: false, error: 'internal error', detail: (err instanceof Error ? err.message : String(err)) });
     }
 });
 
-app.post('/fetch-now', async (_req, res) => {
+app.get('/fetch-now', async (_req, res) => {
     try {
         await fetchAndStore();
         res.json({ ok: true });

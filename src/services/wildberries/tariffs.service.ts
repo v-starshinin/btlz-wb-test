@@ -1,6 +1,6 @@
 
 import axios, { AxiosError, AxiosInstance } from 'axios';
-import {
+import type {
     WarehouseTariff,
     TariffData,
     BoxTariffResponse,
@@ -13,7 +13,7 @@ import {
 } from './errors.js';
 
 export class WildberriesTariffsService {
-    private readonly baseUrl = 'https://common-api.wildberries.ru/api/v1';
+    private readonly baseUrl: string = 'https://common-api.wildberries.ru/api/v1';
     private readonly apiKey: string;
     private readonly client: AxiosInstance;
     private readonly maxRetries: number;
@@ -43,16 +43,17 @@ export class WildberriesTariffsService {
         this.backoffMaxMs = Number.isNaN(bm) ? 30000 : bm;
     }
 
-    private parseProblem(respData: any): ProblemResponse | undefined {
-        if (!respData) return undefined;
+    private parseProblem(respData: unknown): ProblemResponse | undefined {
+        if (!respData || typeof respData !== 'object') return undefined;
         const p: ProblemResponse = {};
-        if (typeof respData.title === 'string') p.title = respData.title;
-        if (typeof respData.detail === 'string') p.detail = respData.detail;
-        if (typeof respData.code === 'string') p.code = respData.code;
-        if (typeof respData.requestId === 'string') p.requestId = respData.requestId;
-        if (typeof respData.origin === 'string') p.origin = respData.origin;
-        if (typeof respData.status === 'number') p.status = respData.status;
-        if (typeof respData.timestamp === 'string') p.timestamp = respData.timestamp;
+        const src = respData as Record<string, unknown>;
+        if (typeof src.title === 'string') p.title = src.title;
+        if (typeof src.detail === 'string') p.detail = src.detail;
+        if (typeof src.code === 'string') p.code = src.code;
+        if (typeof src.requestId === 'string') p.requestId = src.requestId;
+        if (typeof src.origin === 'string') p.origin = src.origin;
+        if (typeof src.status === 'number') p.status = src.status;
+        if (typeof src.timestamp === 'string') p.timestamp = src.timestamp;
         return p;
     }
 
