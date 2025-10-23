@@ -115,13 +115,69 @@ export class GoogleSheetsExporter {
         ];
 
         for (const spreadsheetId of sheetIds) {
-            await this.sheetsClient.spreadsheets.values.update({
-                spreadsheetId,
-                range: 'stocks_coefs!A1',
-                valueInputOption: 'USER_ENTERED',
-                requestBody: { values }
-            });
-            googleLogger.info(`Updated spreadsheet ${spreadsheetId}`);
+            // Найдём таб по имени stocks_coefs, создадим если нужно
+            let sheetTitle = 'stocks_coefs';
+            let foundSheetId: number | undefined = undefined;
+            try {
+                const info = await this.sheetsClient.spreadsheets.get({ spreadsheetId });
+                const target = info.data.sheets?.find(
+                    s => s.properties?.title === sheetTitle
+                );
+                const candidateId = target?.properties?.sheetId;
+                foundSheetId = (typeof candidateId === 'number') ? candidateId : undefined;
+            } catch (e) {
+                googleLogger.error(`Ошибка при получении листов Google Sheets: ${e}`);
+            }
+            // Если листа нет — создаём
+            if (!foundSheetId) {
+                try {
+                    const createRes = await this.sheetsClient.spreadsheets.batchUpdate({
+                        spreadsheetId,
+                        requestBody: {
+                            requests: [{
+                                addSheet: {
+                                    properties: { title: sheetTitle }
+                                }
+                            }]
+                        }
+                    });
+                    const createdId = createRes.data.replies?.[0]?.addSheet?.properties?.sheetId;
+                    foundSheetId = (typeof createdId === 'number') ? createdId : undefined;
+                    googleLogger.info(`Создан лист stocks_coefs в таблице ${spreadsheetId}`);
+                } catch (e: any) {
+                    // Если ошибка - такой лист уже есть (already exists) — просто ищём id листа и продолжаем экспорт
+                    const errMsg = e?.message || String(e);
+                    if (errMsg.includes('already exists')) {
+                        googleLogger.warn(`Лист stocks_coefs уже существует в ${spreadsheetId}, ищу повторно...`);
+                        try {
+                            const info = await this.sheetsClient.spreadsheets.get({ spreadsheetId });
+                            const target = info.data.sheets?.find(
+                                s => s.properties?.title === sheetTitle
+                            );
+                            const candidateId = target?.properties?.sheetId;
+                            foundSheetId = (typeof candidateId === 'number') ? candidateId : undefined;
+                        } catch (findErr) {
+                            googleLogger.error(`Не удалось найти id листа после already exists: ${findErr}`);
+                            continue;
+                        }
+                    } else {
+                        googleLogger.error(`Не удалось создать лист stocks_coefs: ${e}`);
+                        continue;
+                    }
+                }
+            }
+            // Экспортируем в найденный лист
+            try {
+                await this.sheetsClient.spreadsheets.values.update({
+                    spreadsheetId,
+                    range: `${sheetTitle}!A1`,
+                    valueInputOption: 'USER_ENTERED',
+                    requestBody: { values }
+                });
+                googleLogger.info(`Updated spreadsheet ${spreadsheetId} (лист stocks_coefs)`);
+            } catch (e) {
+                googleLogger.error(`Ошибка записи в лист stocks_coefs для ${spreadsheetId}: ${e}`);
+            }
         }
     }
 }
