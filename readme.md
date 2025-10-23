@@ -1,3 +1,25 @@
+# Как получить GOOGLE_SA_CREDENTIALS (base64)
+
+1. Перейдите в Google Cloud Console (https://console.cloud.google.com/) и выберите или создайте нужный проект.
+2. Включите Google Sheets API для проекта:
+	- APIs & Services > Library
+	- Найдите Google Sheets API
+	- Нажмите Enable
+3. Создайте сервисный аккаунт:
+	- APIs & Services > Credentials
+	- Create Credentials > Service Account
+	- Заполните имя и описание, нажмите Create
+4. На вкладке Service Accounts найдите нужную строку, откройте, вкладка "Keys"
+5. Add Key > Create new key > выберите в формате JSON, скачайте файл
+6. Преобразуйте скачанный credentials.json в base64:
+```bash
+base64 -w 0 path/to/credentials.json > credentials.base64
+cat credentials.base64
+```
+	- Или без файла: `base64 -w 0 path/to/credentials.json`
+7. Полученную длинную строку base64 вставьте в переменную GOOGLE_SA_CREDENTIALS в .env
+8. Сервисный аккаунт (email из json) должен иметь права на редактирование нужных Google Sheets (поделитесь доступом в самом Google Sheets и добавьте этот email как редактора)
+
 # Шаблон для выполнения тестового задания
 
 ## Описание
